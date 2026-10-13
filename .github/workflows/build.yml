@@ -1,0 +1,22 @@
+name: macOS build and local regression checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify
+        env:
+          PROMPTSHELF_OPEN_SKIP_KEYCHAIN_TEST: '1'
+        run: scripts/verify.sh
+      - name: Archive the app with executable permissions
+        run: ditto -c -k --sequesterRsrc --keepParent .build.noindex/PromptShelf-Open.app PromptShelf-Open.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PromptShelf-Open-macOS
+          path: PromptShelf-Open.zip

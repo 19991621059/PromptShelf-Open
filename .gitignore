@@ -1,0 +1,15 @@
+.DS_Store
+.build.noindex/
+.verification/
+*.app/
+dist/
+.env*
+!.env.example
+prompt-history.md
+*.key
+*.pem
+*.p12
+*.p8
+*.mobileprovision
+.local/
+node_modules/
