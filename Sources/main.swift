@@ -15,6 +15,7 @@ if CommandLine.arguments.contains("--self-test") {
         try renderInteractionSamples()
         try runManagerChecks()
         try runPetChecks()
+        try runWorkflowWindowChecks()
         try runWorkflowChecks()
         print("PASS: inherited local prompt management regression checks")
         exit(0)
@@ -39,7 +40,8 @@ if CommandLine.arguments.contains("--workflow-check") {
     app.run()
     exit(0)
 }
-if NSRunningApplication.runningApplications(withBundleIdentifier: OpenEnvironment.bundleID).contains(where: {
+let instanceBundleID = OpenEnvironment.sandbox == nil ? OpenEnvironment.bundleID : Bundle.main.bundleIdentifier ?? OpenEnvironment.bundleID
+if NSRunningApplication.runningApplications(withBundleIdentifier: instanceBundleID).contains(where: {
     $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
 }) { exit(0) }
 let delegate = AppDelegate()

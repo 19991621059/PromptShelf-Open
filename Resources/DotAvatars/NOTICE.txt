@@ -1,0 +1,2 @@
+Dot avatar rendering template derived from the user-provided Skillry Dot Avatar Maker export: https://skillry.dev/zh/dot-avatar-maker
+Adapted for the five approved PromptShelf companions, transparent background, native input handling and suspended hidden previews. Three.js 0.170.0 dependencies are bundled offline; see THREE-LICENSE.txt.

@@ -130,10 +130,10 @@ final class ModelSettingsWindowController: NSWindowController, NSWindowDelegate 
         grid.rowSpacing = 14; grid.columnSpacing = 16
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
-        let help = WorkflowUI.label("模型调用直接发往你配置的服务。选择远程 API 时，所选材料会发送给该服务；本地 Ollama 在这台 Mac 上处理。密钥仅存入 macOS 钥匙串。", size: 12)
+        let help = WorkflowUI.label("本地模型在这台 Mac 处理；远程 API 会接收你选择的材料。", size: 12)
         help.textColor = WorkflowUI.secondary
         let buttons = WorkflowUI.stack([test, save], vertical: false)
-        let content = WorkflowUI.stack([WorkflowUI.label("接入自己的模型", size: 23, weight: .semibold), help, grid, noThinking, deleteKey, status, NSView(), buttons], spacing: 18)
+        let content = WorkflowUI.stack([help, grid, noThinking, deleteKey, status, NSView(), buttons], spacing: 18)
         WorkflowUI.embed(content, in: window.contentView!, inset: 26)
         for view in [help, grid, status] { view.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true }
         address.widthAnchor.constraint(greaterThanOrEqualToConstant: 410).isActive = true
@@ -183,8 +183,8 @@ final class ModelSettingsWindowController: NSWindowController, NSWindowDelegate 
             guard let self else { return "" }
             var testConfig = try config.validated(); testConfig.maxOutputTokens = 128
             let client = enteredKey.isEmpty ? try await self.workspace.client(for: testConfig) : ModelClient(configuration: testConfig, key: enteredKey)
-            let response = try await client.generate(instruction: "只回复四个汉字：连接成功", input: "模型连接测试")
-            return "连接成功 · \(testConfig.model)\n\(response.prefix(160))"
+            _ = try await client.generate(instruction: "只回复四个汉字：连接成功", input: "模型连接测试")
+            return "连接成功"
         }
     }
     @objc func saveSettings() {

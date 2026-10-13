@@ -20,10 +20,11 @@ xcrun swiftc -module-cache-path "$project_root/.build.noindex/ModuleCache" \
   -swift-version 5 "$optimization" "${debug_flags[@]}" -target "$architecture-apple-macosx13.0" \
   "$project_root"/Sources/*.swift "$project_root"/Tests/*.swift \
   -framework AppKit -framework PDFKit -framework ServiceManagement \
-  -framework Carbon -framework Security -o "$app_path/Contents/MacOS/PromptShelf-Open"
+  -framework Carbon -framework Security -framework WebKit -o "$app_path/Contents/MacOS/PromptShelf-Open"
 cp "$project_root/Resources/Info.plist" "$app_path/Contents/Info.plist"
 if [[ -f "$project_root/Resources/AppIcon.icns" ]]; then
   cp "$project_root/Resources/AppIcon.icns" "$app_path/Contents/Resources/"
 fi
+ditto "$project_root/Resources/DotAvatars" "$app_path/Contents/Resources/DotAvatars"
 codesign --force --sign - "$app_path"
 print "Built: $app_path ($architecture)"

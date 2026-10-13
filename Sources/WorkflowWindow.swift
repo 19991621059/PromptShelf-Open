@@ -1,24 +1,28 @@
 import AppKit
 import UniformTypeIdentifiers
 
+final class WorkflowMessageField: NSTextField {
+    override var stringValue: String { didSet { isHidden = stringValue.isEmpty } }
+}
+
 @MainActor
 final class WorkflowWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate,
     NSTextFieldDelegate, NSTextViewDelegate, NSWindowDelegate {
     unowned let host: AppDelegate
     let workspace: WorkflowWorkspace
     let flows = NSTableView(), steps = NSTableView(), executions = NSTableView()
-    let name = NSTextField(), stepName = NSTextField(), input = NSPopUpButton()
+    let stepName = NSTextField(), input = NSPopUpButton()
     let instruction = NSTextView(), note = NSTextView(), output = NSTextView()
     let filesLabel = WorkflowUI.label("尚未选择文件", size: 12)
-    let modelLabel = WorkflowUI.label("先在模型设置中连接模型", size: 12)
-    let runStatus = WorkflowUI.label("准备运行", size: 18, weight: .semibold)
-    let issue = WorkflowUI.label("", size: 12)
+    let runStatus = WorkflowUI.label("", size: 12)
+    let issue = WorkflowMessageField(wrappingLabelWithString: "")
     let resultTitle = WorkflowUI.label("步骤结果", size: 14, weight: .semibold)
     let history = NSPopUpButton()
     let prompts = NSPopUpButton(frame: .zero, pullsDown: true)
     let spinner = NSProgressIndicator()
     var runButton: NSButton!, cancelButton: NSButton!, saveResult: NSButton!, copyResult: NSButton!
     var retry: NSButton!, add: NSButton!, remove: NSButton!, up: NSButton!, down: NSButton!
+    var modelButton: NSButton!, clearFilesButton: NSButton!, executionScroll: NSScrollView!
     var models: ModelSettingsWindowController?
     var selectedFlowID: UUID?
     var currentRunID: UUID?
@@ -27,25 +31,23 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
     private var lastShownRunID: UUID?
     private var lastFinishedStep: UUID?
     private var handlers: [MenuAction] = []
-    private var sourceDisplay = ""
     var currentFlowIndex: Int? { workspace.snapshot.workflows.firstIndex(where: { $0.id == selectedFlowID }) }
     var currentFlow: WorkflowDefinition? { currentFlowIndex.map { workspace.snapshot.workflows[$0] } }
     var currentRun: WorkflowExecution? { workspace.snapshot.history.first(where: { $0.id == currentRunID }) }
 
     init(host: AppDelegate, workspace: WorkflowWorkspace) {
         self.host = host; self.workspace = workspace
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1220, height: 780),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1160, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "PromptShelf-Open · AI 工作流"
-        window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 1100, height: 730)
+        window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 1060, height: 640)
         window.appearance = host.panel?.appearance
         window.titlebarAppearsTransparent = true
         super.init(window: window)
         window.delegate = self; window.center()
-        window.setFrameAutosaveName("PromptShelfOpen.Workflows")
+        if OpenEnvironment.sandbox == nil { window.setFrameAutosaveName("PromptShelfOpen.Workflows") }
+        issue.font = .systemFont(ofSize: 12)
         for table in [flows, steps, executions] { table.dataSource = self; table.delegate = self; table.allowsEmptySelection = false }
-        name.font = .systemFont(ofSize: 23, weight: .semibold); name.isBezeled = false; name.drawsBackground = false
-        name.delegate = self; name.setAccessibilityLabel("工作流名称")
         stepName.delegate = self; stepName.setAccessibilityLabel("步骤名称")
         input.addItems(withTitles: StepInput.allCases.map(\.title)); input.target = self; input.action = #selector(changeStepInput)
         input.setAccessibilityLabel("本步骤的输入来源")
@@ -76,42 +78,49 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
 
     private func buildSidebar() -> NSView {
         let pane = NSView(); pane.wantsLayer = true
-        let title = WorkflowUI.label("PromptShelf", size: 21, weight: .bold)
-        let open = WorkflowUI.label("OPEN  /  本机工作空间", size: 11, weight: .medium); open.textColor = WorkflowUI.secondary
-        let heading = WorkflowUI.label("工作流", size: 13, weight: .semibold)
-        let flowScroll = WorkflowUI.table(flows, label: "工作流列表"); flows.rowHeight = 52
+        let heading = WorkflowUI.label("工作流", size: 14, weight: .semibold)
+        let flowScroll = WorkflowUI.table(flows, label: "工作流列表"); flows.rowHeight = 38
+        let more = NSPopUpButton(frame: .zero, pullsDown: true)
+        more.addItem(withTitle: "更多")
+        more.setAccessibilityLabel("工作流操作")
+        for (title, action) in [("重命名", #selector(renameWorkflow)), ("复制工作流", #selector(duplicateWorkflow)), ("删除工作流", #selector(deleteWorkflow))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self; more.menu?.addItem(item)
+        }
         let actions = WorkflowUI.stack([
             WorkflowUI.button("新建", target: self, action: #selector(newWorkflow), symbol: "plus"),
-            WorkflowUI.button("复制", target: self, action: #selector(duplicateWorkflow), symbol: "doc.on.doc")
+            more
         ], vertical: false, spacing: 8)
-        let trash = WorkflowUI.button("删除工作流", target: self, action: #selector(deleteWorkflow), symbol: "trash")
         let library = WorkflowUI.button("提示词库", target: self, action: #selector(showPrompts), symbol: "text.quote")
-        let settings = WorkflowUI.button("模型设置", target: self, action: #selector(showModels), symbol: "slider.horizontal.3")
-        let footer = WorkflowUI.label("0.1.0 · macOS\n开源 · 自带模型", size: 11); footer.textColor = WorkflowUI.secondary
-        let stack = WorkflowUI.stack([title, open, WorkflowUI.separator(), heading, flowScroll, actions, trash, WorkflowUI.separator(), library, settings, footer], spacing: 14)
-        WorkflowUI.embed(stack, in: pane, inset: 18)
-        for view in [flowScroll, library, settings] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        modelButton = WorkflowUI.button("连接模型…", target: self, action: #selector(showModels), symbol: "slider.horizontal.3")
+        let stack = WorkflowUI.stack([heading, flowScroll, actions, WorkflowUI.separator(), library, modelButton!], spacing: 12)
+        WorkflowUI.embed(stack, in: pane, inset: 16)
+        for view in [flowScroll, library, modelButton!] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
         flowScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
         return pane
     }
     private func buildEditor() -> NSView {
         let pane = NSView()
-        let intro = WorkflowUI.label("把提示词组合成任务", size: 12); intro.textColor = WorkflowUI.secondary
-        let sourceHeading = WorkflowUI.label("1  选择材料", size: 14, weight: .semibold)
+        let sourceHeading = WorkflowUI.label("材料", size: 14, weight: .semibold)
+        clearFilesButton = WorkflowUI.button("移除文件", target: self, action: #selector(clearFiles), symbol: "xmark")
+        clearFilesButton.imagePosition = .imageOnly; clearFilesButton.toolTip = "移除所选文件"; clearFilesButton.isHidden = true
         let sourceButtons = WorkflowUI.stack([
             WorkflowUI.button("选择文件…", target: self, action: #selector(chooseFiles), symbol: "doc.badge.plus"),
-            WorkflowUI.button("清空", target: self, action: #selector(clearFiles))
+            clearFilesButton!
         ], vertical: false)
+        filesLabel.isHidden = true
         let noteScroll = WorkflowUI.scroll(text: note, editable: true)
         noteScroll.heightAnchor.constraint(equalToConstant: 50).isActive = true
-        let noteLabel = WorkflowUI.label("补充说明（也可以直接输入要处理的文字）", size: 11); noteLabel.textColor = WorkflowUI.secondary
-        let stepHeading = WorkflowUI.label("2  组合步骤", size: 14, weight: .semibold)
+        let noteLabel = WorkflowUI.label("文字 / 补充说明", size: 11); noteLabel.textColor = WorkflowUI.secondary
+        let stepHeading = WorkflowUI.label("步骤", size: 14, weight: .semibold)
         let stepScroll = WorkflowUI.table(steps, label: "工作流步骤"); steps.rowHeight = 32
+        steps.style = .plain; steps.backgroundColor = .textBackgroundColor
         stepScroll.heightAnchor.constraint(equalToConstant: 112).isActive = true
-        add = WorkflowUI.button("添加", target: self, action: #selector(addStep), symbol: "plus")
-        remove = WorkflowUI.button("删除", target: self, action: #selector(removeStep))
-        up = WorkflowUI.button("上移", target: self, action: #selector(stepUp))
-        down = WorkflowUI.button("下移", target: self, action: #selector(stepDown))
+        add = WorkflowUI.button("添加步骤", target: self, action: #selector(addStep), symbol: "plus")
+        remove = WorkflowUI.button("删除步骤", target: self, action: #selector(removeStep), symbol: "trash")
+        up = WorkflowUI.button("上移步骤", target: self, action: #selector(stepUp), symbol: "arrow.up")
+        down = WorkflowUI.button("下移步骤", target: self, action: #selector(stepDown), symbol: "arrow.down")
+        for button in [remove!, up!, down!] { button.imagePosition = .imageOnly; button.toolTip = button.title }
         let tools = WorkflowUI.stack([add, remove, up, down], vertical: false, spacing: 6)
         let stepFields = WorkflowUI.stack([stepName, input], vertical: false, spacing: 8)
         input.widthAnchor.constraint(equalToConstant: 190).isActive = true
@@ -123,10 +132,10 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
         runButton.bezelColor = .controlAccentColor
         cancelButton = WorkflowUI.button("取消运行", target: self, action: #selector(cancelRun))
         let runActions = WorkflowUI.stack([runButton, cancelButton], vertical: false)
-        let stack = WorkflowUI.stack([intro, name, modelLabel, WorkflowUI.separator(), sourceHeading, sourceButtons,
+        let stack = WorkflowUI.stack([sourceHeading, sourceButtons,
             filesLabel, noteLabel, noteScroll, stepHeading, stepScroll, tools, stepFields, instructionScroll, prompts, runActions], spacing: 6)
         WorkflowUI.embed(stack, in: pane, inset: 22)
-        for view in [name, modelLabel, filesLabel, noteScroll, stepScroll, stepFields, instructionScroll] {
+        for view in [filesLabel, noteScroll, stepScroll, stepFields, instructionScroll] {
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
         stepName.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -134,22 +143,23 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
     }
     private func buildResults() -> NSView {
         let pane = NSView()
-        let heading = WorkflowUI.label("执行过程与结果", size: 22, weight: .semibold)
+        let heading = WorkflowUI.label("结果", size: 14, weight: .semibold)
         history.target = self; history.action = #selector(selectHistory); history.setAccessibilityLabel("选择执行记录")
         history.widthAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
         spinner.style = .spinning; spinner.controlSize = .small; spinner.isDisplayedWhenStopped = false
-        let statusRow = WorkflowUI.stack([spinner, runStatus], vertical: false)
-        let executionScroll = WorkflowUI.table(executions, label: "各步骤执行状态")
-        executionScroll.heightAnchor.constraint(equalToConstant: 168).isActive = true
+        let statusRow = WorkflowUI.stack([heading, NSView(), spinner, runStatus], vertical: false)
+        executionScroll = WorkflowUI.table(executions, label: "各步骤执行状态")
+        executions.style = .plain; executions.backgroundColor = .textBackgroundColor; executions.rowHeight = 44
+        executionScroll.heightAnchor.constraint(equalToConstant: 136).isActive = true
         let outputScroll = WorkflowUI.scroll(text: output, editable: false)
         outputScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 250).isActive = true
         copyResult = WorkflowUI.button("复制结果", target: self, action: #selector(copyOutput), symbol: "doc.on.doc")
         saveResult = WorkflowUI.button("预览并保存…", target: self, action: #selector(saveOutput), symbol: "square.and.arrow.up")
         retry = WorkflowUI.button("重新运行", target: self, action: #selector(retryRun), symbol: "arrow.clockwise")
         let actions = WorkflowUI.stack([copyResult, saveResult], vertical: false)
-        let stack = WorkflowUI.stack([heading, history, statusRow, executionScroll, resultTitle, outputScroll, actions, retry, issue], spacing: 14)
+        let stack = WorkflowUI.stack([statusRow, history, executionScroll!, outputScroll, actions, retry, issue], spacing: 12)
         WorkflowUI.embed(stack, in: pane, inset: 22)
-        for view in [history, executionScroll, outputScroll, issue] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        for view in [statusRow, history, executionScroll!, outputScroll, issue] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
         return pane
     }
     func present() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
@@ -168,7 +178,7 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
         let text: String
         if tableView === flows {
             guard workspace.snapshot.workflows.indices.contains(row) else { return nil }
-            let flow = workspace.snapshot.workflows[row]; text = "\(flow.name)\n\(flow.steps.count) 个步骤"
+            text = workspace.snapshot.workflows[row].name
         } else if tableView === steps {
             guard let flow = currentFlow, flow.steps.indices.contains(row) else { return nil }
             text = "\(row + 1)   \(flow.steps[row].title)"
@@ -189,6 +199,7 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
             cell.textField = label
         }
         cell.textField?.stringValue = text
+        cell.toolTip = text
         return cell
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
@@ -202,12 +213,11 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { readyForAction() }
     private func readyForAction() -> Bool {
         if instruction.hasMarkedText() || note.hasMarkedText()
-            || (name.currentEditor() as? NSTextView)?.hasMarkedText() == true
             || (stepName.currentEditor() as? NSTextView)?.hasMarkedText() == true {
             issue.stringValue = "请先完成中文输入，再切换步骤或运行。"
             return false
         }
-        if instruction.string.count > 8000 || stepName.stringValue.count > 100 || name.stringValue.count > 120 {
+        if instruction.string.count > 8000 || stepName.stringValue.count > 100 {
             issue.stringValue = "名称或提示词超过上限，请精简后继续。"
             issue.textColor = WorkflowUI.error
             return false
@@ -219,7 +229,6 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
         if let index = currentFlowIndex {
             flows.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
         }
-        name.stringValue = currentFlow?.name ?? ""
         steps.reloadData()
         if let flow = currentFlow, !flow.steps.isEmpty {
             steps.selectRowIndexes(IndexSet(integer: min(max(0, selectStep), flow.steps.count - 1)), byExtendingSelection: false)
@@ -244,13 +253,9 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
         }
     }
     func controlTextDidChange(_ notification: Notification) {
-        guard !loading, let index = currentFlowIndex, let field = notification.object as? NSTextField,
+        guard !loading, let field = notification.object as? NSTextField,
             (field.currentEditor() as? NSTextView)?.hasMarkedText() != true else { return }
-        if field === name {
-            guard name.stringValue.count <= 120 else { issue.stringValue = "工作流名称最多 120 字"; return }
-            workspace.edit { $0.workflows[index].name = name.stringValue }
-            flows.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
-        } else if field === stepName { updateStep() }
+        if field === stepName { updateStep() }
     }
     func textDidChange(_ notification: Notification) { if notification.object as? NSTextView === instruction { updateStep() } }
     private func updateStep() {
@@ -271,7 +276,19 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
         let flow = WorkflowDefinition(name: "新工作流", steps: [WorkflowStep(title: "处理材料", instruction: "请用中文总结以下材料，保留关键事实。", input: .files)])
         workspace.edit { $0.workflows.append(flow) }; selectedFlowID = flow.id
         flows.reloadData(); flows.selectRowIndexes(IndexSet(integer: workspace.snapshot.workflows.count - 1), byExtendingSelection: false)
-        loadFlow(); window?.makeFirstResponder(name)
+        loadFlow(); renameWorkflow()
+    }
+    @objc func renameWorkflow() {
+        guard readyForAction(), let index = currentFlowIndex else { return }
+        let field = NSTextField(string: workspace.snapshot.workflows[index].name)
+        field.frame = NSRect(x: 0, y: 0, width: 300, height: 26); field.setAccessibilityLabel("工作流名称")
+        let alert = NSAlert(); alert.messageText = "工作流名称"; alert.accessoryView = field
+        alert.addButton(withTitle: "保存"); alert.addButton(withTitle: "取消")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.count <= 120 else { issue.stringValue = "名称需要 1–120 字"; issue.isHidden = false; return }
+        workspace.edit { $0.workflows[index].name = value }; loadFlow(selectStep: max(0, steps.selectedRow))
     }
     @objc func duplicateWorkflow() {
         guard readyForAction(), workspace.snapshot.workflows.count < 100 else { return }
@@ -315,7 +332,7 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
         loadFlow(selectStep: to)
     }
     func refreshPromptMenu() {
-        prompts.removeAllItems(); prompts.addItem(withTitle: "从提示词库添加步骤…")
+        prompts.removeAllItems(); prompts.addItem(withTitle: "从提示词库添加…")
         for prompt in host.store.library.prompts.prefix(200) { prompts.addItem(withTitle: prompt.title); prompts.lastItem?.representedObject = prompt.id.uuidString }
         prompts.isEnabled = !host.store.library.prompts.isEmpty
     }
@@ -335,8 +352,9 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
         guard open.runModal() == .OK else { return }
         fileURLs = open.urls
         filesLabel.stringValue = "\(fileURLs.count) 个文件 · " + fileURLs.map(\.lastPathComponent).joined(separator: "、")
+        filesLabel.isHidden = fileURLs.isEmpty; clearFilesButton.isHidden = fileURLs.isEmpty
     }
-    @objc func clearFiles() { fileURLs = []; filesLabel.stringValue = "尚未选择文件" }
+    @objc func clearFiles() { fileURLs = []; filesLabel.isHidden = true; clearFilesButton.isHidden = true }
     @objc func runWorkflow() {
         guard readyForAction() else { return }
         guard let flow = currentFlow else { return }
@@ -357,20 +375,28 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
     }
     func refreshRuntime() {
         let config = workspace.configuration
-        modelLabel.stringValue = config.model.isEmpty ? "先在模型设置中连接模型" : config.provider.title + " · " + config.model
-        modelLabel.textColor = WorkflowUI.secondary
+        modelButton.title = config.model.isEmpty ? "连接模型…" : config.model
+        modelButton.setAccessibilityLabel(config.model.isEmpty ? "连接模型" : "模型设置 · " + config.model)
+        modelButton.toolTip = config.provider.title + " · " + config.baseURL
         if let active = workspace.activeRunID, workspace.running { currentRunID = active }
         let selected = workspace.snapshot.history.firstIndex(where: { $0.id == currentRunID }) ?? 0
         history.removeAllItems()
         let format = DateFormatter(); format.dateFormat = "MM-dd HH:mm"
         for run in workspace.snapshot.history { history.addItem(withTitle: "\(format.string(from: run.startedAt)) · \(run.definition.name) · \(run.status.title)") }
-        if history.numberOfItems == 0 { history.addItem(withTitle: "运行后会保留执行记录"); history.isEnabled = false }
+        history.isHidden = history.numberOfItems == 0
+        if history.numberOfItems == 0 { history.isEnabled = false }
         else { history.isEnabled = true; history.selectItem(at: min(selected, history.numberOfItems - 1)) }
-        runButton.isEnabled = !workspace.running; cancelButton.isEnabled = workspace.running; retry.isEnabled = !workspace.running && currentRun != nil
+        runButton.isEnabled = !workspace.running; cancelButton.isEnabled = workspace.running; cancelButton.isHidden = !workspace.running
+        retry.isEnabled = !workspace.running && currentRun != nil
+        retry.isHidden = workspace.running || currentRun == nil || currentRun?.status == .succeeded
+        executionScroll.isHidden = currentRun == nil
         if workspace.running { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
-        runStatus.stringValue = currentRun?.status.title ?? "准备运行"
-        runStatus.textColor = currentRun?.status == .failed ? WorkflowUI.error : .labelColor
-        issue.stringValue = workspace.issue
+        runStatus.stringValue = currentRun?.status.title ?? ""
+        runStatus.textColor = currentRun?.status == .failed ? WorkflowUI.error : WorkflowUI.secondary
+        let redundant = workspace.issue == "模型设置已保存" || workspace.issue == "任务完成，结果已保存在本机"
+            || (workspace.running && (workspace.issue == "读取所选文件…" || workspace.issue.hasPrefix("第 ")))
+        issue.stringValue = redundant ? "" : workspace.issue
+        issue.isHidden = issue.stringValue.isEmpty
         issue.textColor = currentRun?.status == .failed || workspace.issue.contains("保存失败") ? WorkflowUI.error : WorkflowUI.secondary
         loading = true
         let row = executions.selectedRow
@@ -395,11 +421,12 @@ final class WorkflowWindowController: NSWindowController, NSTableViewDataSource,
             text = !step.output.isEmpty ? step.output : step.error ?? (step.status == .running ? "模型正在处理这一步…" : "这一步还没有输出。")
             saveResult.isEnabled = !step.output.isEmpty; copyResult.isEnabled = !step.output.isEmpty
         } else {
-            resultTitle.stringValue = "步骤结果"; text = "运行一个工作流后，可在这里查看每一步的输出。"
+            resultTitle.stringValue = "步骤结果"; text = ""
             saveResult.isEnabled = false; copyResult.isEnabled = false
         }
         // Status updates preserve selection and scrolling when the displayed result is unchanged.
         if output.string != text { output.string = text; output.scrollRangeToVisible(NSRange(location: 0, length: 0)) }
+        saveResult.isHidden = !saveResult.isEnabled; copyResult.isHidden = !copyResult.isEnabled
     }
     @objc func copyOutput() {
         OpenEnvironment.pasteboard.clearContents()

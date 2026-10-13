@@ -4,11 +4,11 @@
 
 **无需应用账号和订阅。提示词与任务记录保存在本机，模型由你选择。MIT 开源。**
 
-[下载安装包](https://github.com/19991621059/PromptShelf-Open/releases/latest) · [源码构建](docs/BUILD.md) · [实测记录](docs/verification/0.1.0.md) · [安全与隐私](SECURITY.md)
+[下载安装包](https://github.com/19991621059/PromptShelf-Open/releases/latest) · [源码构建](docs/BUILD.md) · [实测记录](docs/verification/0.1.1.md) · [安全与隐私](SECURITY.md)
 
 ![安装版执行真实三步任务后的界面](docs/media/workflow-result.png)
 
-## 真实演示
+## 界面与演示
 
 下图来自已安装的 macOS 应用，使用仓库内的[虚构会议资料](examples/demo-meeting.md)和本地 `gemma4:12b`。等待过程已加速；界面、执行状态和输出均为实际运行，没有使用网页模型或设计稿。
 
@@ -29,11 +29,11 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `PromptShelf-Open-0.1.0-arm64.dmg` | Apple Silicon Mac，打开后拖入 Applications |
-| `PromptShelf-Open-0.1.0-arm64.zip` | 相同应用的 ZIP 包，解压后移入 Applications |
+| `PromptShelf-Open-0.1.1-arm64.dmg` | Apple Silicon Mac，打开后拖入 Applications |
+| `PromptShelf-Open-0.1.1-arm64.zip` | 相同应用的 ZIP 包，解压后移入 Applications |
 | `SHA256SUMS` | 对照安装包的 SHA-256 校验值 |
 
-程序目标为 macOS 13 或更新版本；**0.1.0 安装包实际验证平台为 Apple Silicon / macOS 27.0.1**。Intel 用户可从源码构建，当前没有 Intel 安装包和真机验收记录。
+程序目标为 macOS 13 或更新版本；**0.1.1 安装包实际验证平台为 Apple Silicon / macOS 27.0.1**。Intel 用户可从源码构建，当前没有 Intel 安装包和真机验收记录。
 
 当前发行包采用临时签名，**尚未取得 Apple Developer ID 签名和公证**。外部下载可能被 macOS Gatekeeper 提示或阻止；本机安装启动通过不等于已完成互联网下载后的 Gatekeeper 验收。请先核对来源、校验值和系统提示。代码签名、公证及更多系统版本验证是后续发行工作。
 
@@ -47,21 +47,23 @@
 4. 选择“文件 → 信息 → 文稿”，添加自己的文件或输入文字，点击“运行工作流”。
 5. 查看各步骤输出；需要保存时，点击“预览并保存…”，检查预览再确认。
 
-![安装版发现本机模型并完成真实生成连接测试](docs/media/model-connection.png)
-
 ### 使用自己的 API
 
 选择“OpenAI 兼容 API”，填写服务商提供的 **API 根地址**（例如 `https://你的服务地址/v1`）、模型名称和 API Key。应用在根地址后追加 `/chat/completions`；不要填写完整的生成请求路径。远程地址要求 HTTPS，密钥保存在 macOS 钥匙串中。
 
 部分思考模型可勾选“请求关闭思考”，该选项会发送 `reasoning_effort: "none"`，仅适用于支持它的服务。Ollama 的兼容接口说明见[官方文档](https://docs.ollama.com/api/openai-compatibility)。服务商不支持该参数时请取消勾选。
 
-0.1.0 已真实验证 Ollama 原生接口和 Ollama 的 OpenAI 兼容接口；**尚未实测带付费密钥的远程云服务**。模型服务的费用、额度和数据处理政策由所选服务商决定。
+0.1.1 已真实验证 Ollama 原生接口和 Ollama 的 OpenAI 兼容接口；**尚未实测带付费密钥的远程云服务**。模型服务的费用、额度和数据处理政策由所选服务商决定。
 
-## 提示词库与文件确认
+## 提示词库、宠物与文件确认
 
 点击左侧“提示词库”管理原有提示词功能，编辑后可以从工作流中的“从提示词库添加步骤…”复用。快捷键：`⌘1` 打开工作流，`⌘M` 打开提示词库。
 
 ![原生提示词库，示例内容为虚构测试资料](docs/media/prompt-library.png)
+
+悬浮伙伴沿用原版 PromptShelf 的五个角色图片和离线动画，可在“提示词库 → 通用设置”中选择。
+
+![恢复原版五个宠物的真实设置界面](docs/media/pets-restored.png)
 
 ![真实保存确认界面：先预览，再确认写入](docs/media/write-preview.png)
 
